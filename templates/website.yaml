@@ -1,0 +1,146 @@
+AWSTemplateFormatVersion: '2010-09-09'
+Description: ''
+
+Parameters:
+  FQDN:
+    Description: The full domain name e.g. www.test.io
+    AllowedPattern: (?!-)[a-zA-Z0-9-.]{1,63}(?<!-)
+    ConstraintDescription: must be a valid DNS zone name.
+    Type: String
+  UserName:
+    Type: String
+    Default: 'TestUser'
+  UserPassword:
+    Type: String
+    Default: 'ChangeMe!'
+    NoEcho: true
+  GroupName:
+    Type: String
+    Default: 'TestGroup'
+  PolicyName:
+    Type: String
+    Default: 'TestPolicy'
+
+Resources:
+  S3Bucket:
+    Type: AWS::S3::Bucket
+    Properties:
+      BucketName: !Ref 'FQDN'
+      AccessControl: PublicRead
+      WebsiteConfiguration:
+        IndexDocument: index.html
+        ErrorDocument: error.html
+      Tags:
+        - Key: "service"
+          Value: !Ref 'FQDN'
+      
+  S3BucketPolicy:
+    Type: AWS::S3::BucketPolicy
+    Properties: 
+      Bucket: !Ref 'S3Bucket'
+      PolicyDocument:
+        Statement:
+        - Effect: Allow
+          Action: 's3:GetObject'
+          Resource: !Join ['', ['arn:aws:s3:::', !Ref 'S3Bucket', '/*' ]]
+          Principal: '*'
+
+  S3BucketLogs:
+    Type: AWS::S3::Bucket
+    Properties:
+      BucketName: !Join ['', ['logs-', !Ref 'FQDN' ]]
+      AccessControl: Private
+      PublicAccessBlockConfiguration:
+        BlockPublicAcls: true
+        IgnorePublicAcls: true
+        BlockPublicPolicy: true
+        RestrictPublicBuckets: true
+      Tags:
+        - Key: "service"
+          Value: !Ref 'FQDN'
+
+  CDNWebsite: 
+    Type: AWS::CloudFront::Distribution
+    Properties:
+      Tags:
+        - Key: "service"
+          Value: !Ref 'FQDN'
+      DistributionConfig:
+        Enabled: true
+        DefaultCacheBehavior:
+          AllowedMethods:
+            - HEAD
+            - GET
+            - OPTIONS
+          ForwardedValues:
+            QueryString: true
+          TargetOriginId: S3Origin
+          ViewerProtocolPolicy: redirect-to-https
+        DefaultRootObject: index.html
+        HttpVersion: 'http2'
+        Origins:
+        - DomainName: !Select [2, !Split ["/", !GetAtt S3Bucket.WebsiteURL]]
+          Id: S3Origin
+          CustomOriginConfig:
+            HTTPPort: 80
+            HTTPSPort: 443
+            OriginProtocolPolicy: http-only
+        Logging:
+          Bucket: !GetAtt S3BucketLogs.DomainName
+          IncludeCookies: false
+          Prefix: 'cfn-logs'
+          
+  CdnS3Group:
+    Type: 'AWS::IAM::Group'
+    Properties:
+      GroupName: !Ref 'GroupName'
+
+  CdnS3GroupPolicies:
+    Type: 'AWS::IAM::Policy'
+    Properties:
+      PolicyName: !Ref 'PolicyName'
+      PolicyDocument:
+        Statement:
+        - Effect: Allow
+          Action: [               
+              "s3:GetBucketLocation",
+              "s3:ListAllMyBuckets"
+            ]
+          Resource: [ '*']
+        - Effect: Allow
+          Action: [               
+              "s3:ListBucket"
+            ]
+          Resource: [ !Join ['', [ 'arn:aws:s3:::', !Ref 'FQDN' ]] ]
+        - Effect: Allow
+          Action: [               
+              "s3:PutObject",
+              "s3:GetObject",
+              "s3:GetObjectVersion",
+              "s3:DeleteObject",
+              "s3:DeleteObjectVersion"
+            ]
+          Resource: [ !Join ['', [ 'arn:aws:s3:::', !Ref 'FQDN', '/*' ]] ]
+      Groups: [!Ref 'CdnS3Group']
+
+  CdnS3User:
+    Type: 'AWS::IAM::User'
+    Properties:
+      UserName: !Ref 'UserName'
+      Groups: [!Ref 'CdnS3Group']
+      LoginProfile:
+        Password: !Ref 'UserPassword'
+        PasswordResetRequired: true
+  
+  CdnS3UserKeys:
+    Type: 'AWS::IAM::AccessKey'
+    Properties:
+      UserName: !Ref 'CdnS3User'
+      
+Outputs:
+  CDNUrl:
+    Value: !Join ['', ['https://', !GetAtt CDNWebsite.DomainName ]]
+    Description: CDN url 
+  BucketName:
+    Value: !Ref 'S3Bucket'
+    Description: Name of S3 bucket to hold website content

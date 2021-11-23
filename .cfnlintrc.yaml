@@ -1,0 +1,8 @@
+templates:
+  - templates/**/*.yaml
+#ignore_templates:
+#  - 
+#include_checks:
+#  - 
+#custom_rules:
+#  - 
