@@ -3,9 +3,12 @@ Description: ''
 
 Parameters:
   FQDN:
-    Description: The full domain name e.g. www.test.io
+    Description: The full domain name e.g. test.io (WARNING without www.)
     AllowedPattern: (?!-)[a-zA-Z0-9-.]{1,63}(?<!-)
     ConstraintDescription: must be a valid DNS zone name.
+    Type: String
+  ARNSslCertificate:
+    Description: Certificate ssl aws Arn
     Type: String
   UserName:
     Type: String
@@ -66,6 +69,12 @@ Resources:
         - Key: "service"
           Value: !Ref 'FQDN'
       DistributionConfig:
+        ViewerCertificate:
+          AcmCertificateArn: !Ref 'ARNSslCertificate'
+          SslSupportMethod: sni-only
+        Aliases: 
+          - !Join ['', ['www.', !Ref 'FQDN' ]]
+          - !Ref 'FQDN'
         Enabled: true
         DefaultCacheBehavior:
           AllowedMethods:
