@@ -62,6 +62,24 @@ Resources:
         - Key: "service"
           Value: !Ref 'FQDN'
 
+  CDNCachePolicy:
+    Type: AWS::CloudFront::CachePolicy
+    Properties: 
+      CachePolicyConfig: 
+        DefaultTTL: 60
+        MinTTL: 60
+        MaxTTL: 180
+        Name: "StandardCachePolicy"
+        ParametersInCacheKeyAndForwardedToOrigin:
+          CookiesConfig:
+            CookieBehavior: all
+          EnableAcceptEncodingBrotli: true
+          EnableAcceptEncodingGzip: true
+          HeadersConfig:
+            HeaderBehavior: none
+          QueryStringsConfig:
+            QueryStringBehavior: all
+
   CDNWebsite: 
     Type: AWS::CloudFront::Distribution
     Properties:
@@ -77,6 +95,7 @@ Resources:
           - !Ref 'FQDN'
         Enabled: true
         DefaultCacheBehavior:
+          CachePolicyId: !GetAtt 'CDNCachePolicy.Id'
           AllowedMethods:
             - HEAD
             - GET
@@ -140,6 +159,24 @@ Resources:
       LoginProfile:
         Password: !Ref 'UserPassword'
         PasswordResetRequired: true
+
+  CdnS3UserPolicies:
+    Type: 'AWS::IAM::Policy'
+    Properties:
+      PolicyName: 'ChangePasswordPolicy'
+      PolicyDocument:
+        Statement:
+        - Effect: Allow
+          Action: [               
+              "iam:ChangePassword"
+            ]
+          Resource: [ 'arn:aws:iam::*:user/${aws:username}']
+        - Effect: Allow
+          Action: [               
+              "iam:GetAccountPasswordPolicy"
+            ]
+          Resource: [ '*']
+      Users: [!Ref 'CdnS3User']
   
   CdnS3UserKeys:
     Type: 'AWS::IAM::AccessKey'
