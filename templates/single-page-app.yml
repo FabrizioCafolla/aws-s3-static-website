@@ -29,14 +29,19 @@ Resources:
     Type: AWS::S3::Bucket
     Properties:
       BucketName: !Ref 'FQDN'
-      AccessControl: PublicRead
+      AccessControl: Private
       WebsiteConfiguration:
         IndexDocument: index.html
-        ErrorDocument: error.html
       Tags:
         - Key: "service"
           Value: !Ref 'FQDN'
-      
+
+  CloudFrontOriginIdentity:
+    Type: AWS::CloudFront::CloudFrontOriginAccessIdentity
+    Properties:
+      CloudFrontOriginAccessIdentityConfig:
+        Comment: 'origin identity'
+
   S3BucketPolicy:
     Type: AWS::S3::BucketPolicy
     Properties: 
@@ -44,9 +49,11 @@ Resources:
       PolicyDocument:
         Statement:
         - Effect: Allow
-          Action: 's3:GetObject'
+          Principal:
+            CanonicalUser:
+              Fn::GetAtt: [ CloudFrontOriginIdentity , S3CanonicalUserId ]
+          Action: "s3:GetObject"
           Resource: !Join ['', ['arn:aws:s3:::', !Ref 'S3Bucket', '/*' ]]
-          Principal: '*'
 
   S3BucketLogs:
     Type: AWS::S3::Bucket
@@ -66,9 +73,9 @@ Resources:
     Type: AWS::CloudFront::CachePolicy
     Properties: 
       CachePolicyConfig: 
-        DefaultTTL: 60
-        MinTTL: 60
-        MaxTTL: 180
+        DefaultTTL: 86400
+        MinTTL: 86400
+        MaxTTL: 604800
         Name: "StandardCachePolicy"
         ParametersInCacheKeyAndForwardedToOrigin:
           CookiesConfig:
@@ -86,15 +93,16 @@ Resources:
       Tags:
         - Key: "service"
           Value: !Ref 'FQDN'
-      DistributionConfig:
+      DistributionConfig:          
         ViewerCertificate:
           AcmCertificateArn: !Ref 'ARNSslCertificate'
           SslSupportMethod: sni-only
         Aliases: 
           - !Join ['', ['www.', !Ref 'FQDN' ]]
+          - !Join ['', ['store.', !Ref 'FQDN' ]]
           - !Ref 'FQDN'
         Enabled: true
-        DefaultCacheBehavior:
+        DefaultCacheBehavior: 
           CachePolicyId: !GetAtt 'CDNCachePolicy.Id'
           AllowedMethods:
             - HEAD
@@ -107,16 +115,23 @@ Resources:
         DefaultRootObject: index.html
         HttpVersion: 'http2'
         Origins:
-        - DomainName: !Select [2, !Split ["/", !GetAtt S3Bucket.WebsiteURL]]
+        - DomainName: !GetAtt S3Bucket.RegionalDomainName
           Id: S3Origin
-          CustomOriginConfig:
-            HTTPPort: 80
-            HTTPSPort: 443
-            OriginProtocolPolicy: http-only
+          S3OriginConfig:
+            OriginAccessIdentity:  !Sub "origin-access-identity/cloudfront/${CloudFrontOriginIdentity}"
         Logging:
           Bucket: !GetAtt S3BucketLogs.DomainName
           IncludeCookies: false
           Prefix: 'cfn-logs'
+        CustomErrorResponses:
+          - ErrorCachingMinTTL: 86400
+            ErrorCode: 403
+            ResponseCode: 200
+            ResponsePagePath: '/index.html'
+          - ErrorCachingMinTTL: 86400
+            ErrorCode: 404
+            ResponseCode: 200
+            ResponsePagePath: '/index.html'
           
   CdnS3Group:
     Type: 'AWS::IAM::Group'
@@ -177,7 +192,7 @@ Resources:
             ]
           Resource: [ '*']
       Users: [!Ref 'CdnS3User']
-  
+
   CdnS3UserKeys:
     Type: 'AWS::IAM::AccessKey'
     Properties:
